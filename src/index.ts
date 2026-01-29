@@ -53,6 +53,12 @@ export * from './router/index.js';
 
 // Re-export utility helpers
 export * from './utils/privy.js';
+export {
+  buildRedeemPositionsTx,
+  buildRedeemPositionsCalldata,
+  signRedeemPositionsTx,
+  CTF_CONTRACT_ADDRESS,
+} from './utils/ctf.js';
 
 // Re-export escrow module (as namespace and direct exports)
 export * as escrow from './escrow/index.js';

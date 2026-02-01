@@ -62,6 +62,8 @@ export {
 
 // Re-export escrow module (as namespace and direct exports)
 export * as escrow from './escrow/index.js';
+export type { TypedDataSigner } from './escrow/signing.js';
+
 export {
   // DomeFeeEscrow v1 exports
   approveEscrow,

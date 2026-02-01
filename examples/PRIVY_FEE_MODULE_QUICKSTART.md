@@ -4,7 +4,7 @@
 
 This guide shows how to manually integrate fee authorization with Privy, giving you full control over order IDs, fee calculation, and signature timing. For automatic handling, see [ESCROW_ROUTER_QUICKSTART.md](./ESCROW_ROUTER_QUICKSTART.md).
 
-> **Tested**: Run `npx tsx examples/test-privy-fee-module.ts` to verify the integration.
+> **Tested**: Verify the integration by running the Complete Example below with your Privy credentials.
 
 ---
 
@@ -72,6 +72,7 @@ You need a Privy account with a server wallet:
 # Required environment variables
 PRIVY_APP_ID=your-app-id
 PRIVY_APP_SECRET=your-app-secret
+PRIVY_AUTHORIZATION_KEY=your-authorization-private-key
 PRIVY_WALLET_ID=your-server-wallet-id
 PRIVY_WALLET_ADDRESS=0x...
 ```
@@ -107,12 +108,17 @@ import {
 
 ### Step 2: Initialize Privy Client
 
-For server wallets, you only need app ID and secret:
+For server-side signing, pass the authorization key:
 
 ```typescript
 const privy = new PrivyClient(
   process.env.PRIVY_APP_ID!,
-  process.env.PRIVY_APP_SECRET!
+  process.env.PRIVY_APP_SECRET!,
+  {
+    walletApi: {
+      authorizationPrivateKey: process.env.PRIVY_AUTHORIZATION_KEY!,
+    },
+  }
 );
 ```
 
@@ -203,6 +209,7 @@ import {
 const config = {
   privyAppId: process.env.PRIVY_APP_ID!,
   privyAppSecret: process.env.PRIVY_APP_SECRET!,
+  privyAuthKey: process.env.PRIVY_AUTHORIZATION_KEY!,
   walletId: process.env.PRIVY_WALLET_ID!,
   walletAddress: process.env.PRIVY_WALLET_ADDRESS!,
 };
@@ -210,8 +217,12 @@ const config = {
 async function main() {
   console.log('Privy Fee Module Test\n');
 
-  // Initialize Privy
-  const privy = new PrivyClient(config.privyAppId, config.privyAppSecret);
+  // Initialize Privy with authorization key for server-side signing
+  const privy = new PrivyClient(config.privyAppId, config.privyAppSecret, {
+    walletApi: {
+      authorizationPrivateKey: config.privyAuthKey,
+    },
+  });
   console.log(`Wallet: ${config.walletAddress}`);
 
   // Order parameters
@@ -299,6 +310,7 @@ main().catch(console.error);
 # Set environment variables
 export PRIVY_APP_ID="your-app-id"
 export PRIVY_APP_SECRET="your-app-secret"
+export PRIVY_AUTHORIZATION_KEY="your-authorization-private-key"
 export PRIVY_WALLET_ID="your-wallet-id"
 export PRIVY_WALLET_ADDRESS="0x..."
 
@@ -393,52 +405,14 @@ console.log(`Total fee: $${formatUsdc(domeAmount + affiliateAmount)}`); // "0.08
 
 ## Testing
 
-Run the included test script to verify your setup:
+To verify your setup, save the Complete Example above as `privy-fee-signing.ts` and run it:
 
 ```bash
-cd dome-sdk-ts-pr
-
-# With .env file
-npx tsx examples/test-privy-fee-module.ts
-
-# Or with environment variables
-export PRIVY_APP_ID="..."
-export PRIVY_APP_SECRET="..."
-export PRIVY_WALLET_ID="..."
-export PRIVY_WALLET_ADDRESS="..."
-npx tsx examples/test-privy-fee-module.ts
+# With .env file containing your Privy credentials
+npx tsx privy-fee-signing.ts
 ```
 
-Expected output:
-
-```
-🧪 Privy Fee Module Integration Test
-
-============================================================
-  OFFLINE TESTS (Escrow Module)
-============================================================
-
-📋 Generate Order ID
-   ✅ PASSED
-
-📋 Calculate Fee (0.25% of $100)
-   ✅ PASSED
-   {"orderSize":"$100.0","feeBps":"0.25%","fee":"$0.25","affiliateShare":"$0.05"}
-
-...
-
-============================================================
-  PRIVY INTEGRATION TESTS
-============================================================
-
-📋 Sign Fee Authorization with Privy
-   ✅ PASSED
-
-📋 Full Order Flow Simulation
-   ✅ PASSED
-
-🎉 All tests passed!
-```
+A successful run will output the generated order ID, fee amounts, Privy signature, and the formatted API payload ready to submit to the Dome API.
 
 ---
 

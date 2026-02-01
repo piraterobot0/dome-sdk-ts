@@ -5,7 +5,11 @@
  */
 
 import 'dotenv/config';
-import { PolymarketRouter, createPrivySigner } from '../src';
+import {
+  PolymarketRouter,
+  PolymarketCredentials,
+  createPrivySigner,
+} from '../src';
 import { PrivyClient } from '@privy-io/server-auth';
 
 async function main() {
@@ -45,10 +49,10 @@ async function main() {
   );
 
   console.log('Linking user...');
-  const credentials = await router.linkUser({
+  const credentials = (await router.linkUser({
     userId: user.id,
     signer,
-  });
+  })) as PolymarketCredentials;
   console.log('✅ User linked\n');
 
   // Step 3: Place order - NO SIGNER NEEDED!

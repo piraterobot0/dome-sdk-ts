@@ -119,3 +119,17 @@ export {
   ESCROW_TIMEOUT_SECONDS,
   FeeType,
 } from './dome-client.js';
+
+// Fee Configuration Fetcher
+export {
+  fetchFeeConfig,
+  clearConfigCache,
+  hasCachedConfig,
+  convertServerConfigToSDK,
+} from './fee-config-fetcher.js';
+
+export type {
+  SDKFeeConfig,
+  ServerFeeResponse,
+  FetchFeeConfigOptions,
+} from './fee-config-fetcher.js';

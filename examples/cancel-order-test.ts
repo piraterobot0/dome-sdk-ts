@@ -79,11 +79,12 @@ async function main() {
     chainId: CONFIG.chainId,
     apiKey: CONFIG.domeApiKey,
     escrow: {
-      feeBps: 25,
+      domeFeeBps: 20, // 0.20% to Dome
+      affiliateFeeBps: 5, // 0.05% to affiliate (if configured)
     },
   });
 
-  console.log('Router initialized with fee escrow (0.25%)\n');
+  console.log('Router initialized with fee escrow (0.25% total)\n');
 
   // Link user
   console.log('Linking user to Polymarket...');

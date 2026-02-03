@@ -55,7 +55,9 @@ const router = new PolymarketRouterWithEscrow({
     authorizationKey: process.env.PRIVY_AUTHORIZATION_KEY!,
   },
   escrow: {
-    affiliate: '0xYourAffiliateWallet', // Your wallet - receives 20% of fees
+    domeFeeBps: 20, // 0.20% to Dome
+    affiliateFeeBps: 5, // 0.05% to affiliate
+    affiliate: '0xYourAffiliateWallet', // Your wallet - receives affiliate fees
   },
 });
 
@@ -86,10 +88,10 @@ const result = await router.placeOrder(
 That's it. The router automatically:
 
 1. Generates a unique order ID
-2. Calculates the fee (0.25% default)
+2. Calculates the fee (0.20% to Dome + 0.05% to affiliate by default)
 3. Signs the fee authorization with the user's Privy wallet
 4. Submits order + fee auth to Dome API
-5. Your affiliate wallet receives 20% of fees on fills
+5. Your affiliate wallet receives the configured affiliate fee on fills
 
 ---
 
@@ -103,10 +105,15 @@ const router = new PolymarketRouterWithEscrow({
   apiKey: process.env.DOME_API_KEY!,
   privy: { ... },
   escrow: {
-    // Fee rate in basis points (default: 25 = 0.25%)
-    feeBps: 25,
+    // Dome fee in basis points (default: 20 = 0.20%)
+    domeFeeBps: 20,
 
-    // Your affiliate wallet address (receives 20% of fees)
+    // Affiliate fee in basis points (default: 0 = 0%)
+    // Required to be set with a non-zero value if affiliate address is provided
+    affiliateFeeBps: 5,
+
+    // Your affiliate wallet address
+    // Required if affiliateFeeBps > 0
     affiliate: '0xYourAffiliateWallet',
 
     // Signature deadline in seconds (default: 3600 = 1 hour)
@@ -120,6 +127,8 @@ const router = new PolymarketRouterWithEscrow({
   },
 });
 ```
+
+**Note**: `domeFeeBps` and `affiliateFeeBps` are **independent** values, not a split. The total fee is the sum of both values. For example, with `domeFeeBps: 20` and `affiliateFeeBps: 5`, a $100 order will have a total fee of 0.25% ($0.25).
 
 ### Per-Order Overrides
 
@@ -135,7 +144,8 @@ await router.placeOrder(
     walletAddress: user.walletAddress,
 
     // Override for this order only:
-    feeBps: 50, // 0.50% fee for this order
+    domeFeeBps: 25, // 0.25% to Dome for this order
+    affiliateFeeBps: 5, // 0.05% to affiliate for this order
     affiliate: '0xDifferentAffiliate', // Different affiliate
     skipEscrow: false, // Set true to skip fee escrow
   },
@@ -173,6 +183,8 @@ const router = new PolymarketRouterWithEscrow({
   apiKey: config.domeApiKey,
   privy: config.privy,
   escrow: {
+    domeFeeBps: 20,
+    affiliateFeeBps: 5,
     affiliate: config.affiliateWallet,
   },
 });
@@ -214,7 +226,10 @@ async function placeUserOrder(
 
   // Calculate expected fee for logging
   const expectedFee = router.calculateOrderFee(size, price);
-  const affiliateShare = (expectedFee * 2000n) / 10000n; // 20%
+  const config = router.getEscrowConfig();
+  const affiliateShare =
+    (expectedFee * BigInt(config.affiliateFeeBps)) /
+    BigInt(config.domeFeeBps + config.affiliateFeeBps);
 
   console.log(`Placing ${side} order: ${size} shares @ ${price}`);
   console.log(
@@ -266,15 +281,15 @@ main().catch(console.error);
 
 ## Fee Calculation Helper
 
-The router includes a helper to calculate fees before placing orders:
+The router includes a helper to calculate total fees (dome + affiliate) before placing orders:
 
 ```typescript
-// Calculate fee for a $100 order at 0.65 price
+// Calculate fee for a $100 order at 0.65 price with default rates (20 BPS dome + 5 BPS affiliate)
 const fee = router.calculateOrderFee(100, 0.65);
 // fee = 162500n (USDC with 6 decimals = $0.1625)
 
-// With custom fee rate
-const customFee = router.calculateOrderFee(100, 0.65, 50); // 0.50%
+// With custom fee rates
+const customFee = router.calculateOrderFee(100, 0.65, 30, 20); // 0.30% dome + 0.20% affiliate
 // customFee = 325000n ($0.325)
 ```
 
@@ -282,11 +297,14 @@ const customFee = router.calculateOrderFee(100, 0.65, 50); // 0.50%
 
 ```
 Order Cost = size × price
-Fee = Order Cost × (feeBps / 10000)
+Dome Fee = Order Cost × (domeFeeBps / 10000)
+Affiliate Fee = Order Cost × (affiliateFeeBps / 10000)
+Total Fee = Dome Fee + Affiliate Fee
 
 Example: 100 shares × $0.65 = $65 order cost
-Fee = $65 × (25 / 10000) = $0.1625
-Your Share (20%) = $0.0325
+Dome Fee = $65 × (20 / 10000) = $0.13
+Affiliate Fee = $65 × (5 / 10000) = $0.0325
+Total Fee = $0.1625
 ```
 
 ---
@@ -319,10 +337,11 @@ await router.placeOrder(
 const escrowConfig = router.getEscrowConfig();
 console.log(escrowConfig);
 // {
-//   feeBps: 25,
+//   domeFeeBps: 20,
+//   affiliateFeeBps: 5,
+//   affiliate: '0xYourAffiliateWallet',
 //   escrowAddress: '0x93519731c9d45738CD999F8b8E86936cc2a33870',
 //   chainId: 137,
-//   affiliate: '0xYourAffiliateWallet',
 //   deadlineSeconds: 3600,
 // }
 ```
@@ -340,7 +359,7 @@ PRIVY_AUTHORIZATION_KEY=wallet-auth:...
 # Dome API key (required for escrow orders)
 DOME_API_KEY=your-dome-api-key
 
-# Your affiliate wallet (receives 20% of fees)
+# Your affiliate wallet (receives configured affiliate fees)
 AFFILIATE_WALLET=0xYourPolygonWalletAddress
 ```
 

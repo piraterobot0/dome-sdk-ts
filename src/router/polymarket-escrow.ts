@@ -33,7 +33,12 @@ import {
   ORDER_FEE_TYPES,
   createDomeFeeEscrowEIP712Domain,
   MIN_ORDER_FEE,
+  MIN_PERFORMANCE_FEE,
 } from '../escrow/index.js';
+import {
+  fetchFeeConfig,
+  type FetchFeeConfigOptions,
+} from '../escrow/fee-config-fetcher.js';
 
 // Dome API endpoint
 const DOME_API_ENDPOINT = 'https://api.domeapi.io/v1';
@@ -42,16 +47,26 @@ const DOME_API_ENDPOINT = 'https://api.domeapi.io/v1';
  * Escrow configuration for the router
  */
 export interface EscrowConfig {
-  /** Fee in basis points (e.g., 25 = 0.25%). Default: 25 */
-  feeBps?: number;
+  /** Dome fee in basis points (e.g., 20 = 0.20%). Default: 20 */
+  domeFeeBps?: number;
+  /** Affiliate fee in basis points (e.g., 5 = 0.05%). Default: 0 */
+  affiliateFeeBps?: number;
+  /** Affiliate wallet address (required if affiliateFeeBps > 0) */
+  affiliate?: string;
   /** Escrow contract address. Default: Polygon mainnet contract */
   escrowAddress?: string;
   /** Chain ID. Default: 137 (Polygon) */
   chainId?: number;
-  /** Affiliate address for fee sharing (optional) */
-  affiliate?: string;
   /** Deadline for fee authorization in seconds. Default: 3600 (1 hour) */
   deadlineSeconds?: number;
+  /** Performance fee - Dome fee in basis points. Default: same as domeFeeBps */
+  performanceDomeFeeBps?: number;
+  /** Performance fee - Affiliate fee in basis points. Default: same as affiliateFeeBps */
+  performanceAffiliateFeeBps?: number;
+  /** Minimum order fee in USDC (6 decimals). Default: MIN_ORDER_FEE (10000 = $0.01) */
+  minOrderFeeUsdc?: bigint;
+  /** Minimum performance fee in USDC (6 decimals). Default: MIN_PERFORMANCE_FEE (100000 = $0.10) */
+  minPerformanceFeeUsdc?: bigint;
 }
 
 /**
@@ -59,18 +74,49 @@ export interface EscrowConfig {
  */
 export interface PolymarketRouterWithEscrowConfig extends PolymarketRouterConfig {
   escrow?: EscrowConfig;
+  /** Fetch fee configuration from Dome API server instead of using local defaults */
+  fetchConfigFromServer?: boolean;
+  /** Cache TTL for server-fetched config in milliseconds. Default: 300000 (5 min). Set to 0 to disable caching. */
+  configCacheTTL?: number;
 }
 
 /**
  * Extended place order params with escrow options
  */
 export interface PlaceOrderWithEscrowParams extends PlaceOrderParams {
-  /** Override fee basis points for this order */
-  feeBps?: number;
-  /** Override affiliate for this order */
+  /** Override Dome fee for this order (basis points) */
+  domeFeeBps?: number;
+  /** Override affiliate fee for this order (basis points) */
+  affiliateFeeBps?: number;
+  /** Override affiliate address for this order */
   affiliate?: string;
   /** Skip fee escrow for this order */
   skipEscrow?: boolean;
+}
+
+/**
+ * Internal resolved escrow configuration with all values set
+ */
+interface ResolvedEscrowConfig {
+  domeFeeBps: number;
+  affiliateFeeBps: number;
+  affiliate: string;
+  escrowAddress: string;
+  chainId: number;
+  deadlineSeconds: number;
+  performanceDomeFeeBps: number;
+  performanceAffiliateFeeBps: number;
+  minOrderFeeUsdc: bigint;
+  minPerformanceFeeUsdc: bigint;
+}
+
+/**
+ * Performance fee split result
+ */
+export interface PerformanceFeeSplitResult {
+  totalFee: bigint;
+  domeAmount: bigint;
+  affiliateAmount: bigint;
 }
 
 /**
@@ -80,18 +126,109 @@ export interface PlaceOrderWithEscrowParams extends PlaceOrderParams {
  * authorizations for every order placed.
  */
 export class PolymarketRouterWithEscrow extends PolymarketRouter {
-  private readonly escrowConfig: Required<EscrowConfig>;
+  private readonly escrowConfig: ResolvedEscrowConfig;
+
+  /**
+   * Create a new router instance, optionally fetching config from server
+   *
+   * This static factory method supports both synchronous (local config) and
+   * asynchronous (server-fetched config) initialization patterns.
+   *
+   * @param config - Router configuration
+   * @returns Promise resolving to configured router instance
+   *
+   * @example
+   * ```typescript
+   * // Fetch config from server
+   * const router = await PolymarketRouterWithEscrow.create({
+   *   apiKey: 'your-dome-api-key',
+   *   fetchConfigFromServer: true,
+   * });
+   *
+   * // Use local config (same as constructor)
+   * const router = await PolymarketRouterWithEscrow.create({
+   *   apiKey: 'your-dome-api-key',
+   *   escrow: { domeFeeBps: 20, affiliateFeeBps: 5 },
+   * });
+   * ```
+   */
+  static async create(
+    config: PolymarketRouterWithEscrowConfig = {}
+  ): Promise<PolymarketRouterWithEscrow> {
+    if (config.fetchConfigFromServer) {
+      const apiKey = config.apiKey;
+      if (!apiKey) {
+        throw new Error(
+          'apiKey is required when fetchConfigFromServer is true'
+        );
+      }
+
+      // Fetch config from server
+      const fetchOptions: FetchFeeConfigOptions = { apiKey };
+      if (config.configCacheTTL !== undefined) {
+        fetchOptions.cacheTTL = config.configCacheTTL;
+      }
+      const sdkConfig = await fetchFeeConfig(fetchOptions);
+
+      // Convert server config to escrow config
+      const escrowConfig: EscrowConfig = {
+        domeFeeBps: sdkConfig.orderFee.domeFeeBps,
+        affiliateFeeBps: sdkConfig.orderFee.affiliateFeeBps,
+        affiliate: sdkConfig.affiliate.address,
+        escrowAddress: sdkConfig.escrowAddress,
+        chainId: sdkConfig.chainId,
+        performanceDomeFeeBps: sdkConfig.performanceFee.domeFeeBps,
+        performanceAffiliateFeeBps: sdkConfig.performanceFee.affiliateFeeBps,
+        minOrderFeeUsdc: sdkConfig.orderFee.minFeeUsdc,
+        minPerformanceFeeUsdc: sdkConfig.performanceFee.minFeeUsdc,
+      };
+
+      return new PolymarketRouterWithEscrow({
+        ...config,
+        escrow: escrowConfig,
+        fetchConfigFromServer: false, // Already fetched
+      });
+    }
+
+    // Use local config (synchronous path)
+    return new PolymarketRouterWithEscrow(config);
+  }
 
   constructor(config: PolymarketRouterWithEscrowConfig = {}) {
     super(config);
 
-    // Set escrow defaults (V2 contract)
+    // Default: 20 BPS to Dome, 0 to affiliate
+    const domeFeeBps = config.escrow?.domeFeeBps ?? 20;
+    const affiliateFeeBps = config.escrow?.affiliateFeeBps ?? 0;
+
+    // Validate affiliate address if affiliate fee is set
+    if (affiliateFeeBps > 0 && !config.escrow?.affiliate) {
+      throw new Error('affiliate address is required when affiliateFeeBps > 0');
+    }
+
+    // Performance fees default to order fee values if not specified
+    const performanceDomeFeeBps =
+      config.escrow?.performanceDomeFeeBps ?? domeFeeBps;
+    const performanceAffiliateFeeBps =
+      config.escrow?.performanceAffiliateFeeBps ?? affiliateFeeBps;
+
+    // Min fees default to hardcoded constants if not provided
+    const minOrderFeeUsdc = config.escrow?.minOrderFeeUsdc ?? MIN_ORDER_FEE;
+    const minPerformanceFeeUsdc =
+      config.escrow?.minPerformanceFeeUsdc ?? MIN_PERFORMANCE_FEE;
+
+    // Set escrow configuration
     this.escrowConfig = {
-      feeBps: config.escrow?.feeBps ?? 25, // 0.25%
+      domeFeeBps,
+      affiliateFeeBps,
+      affiliate: config.escrow?.affiliate ?? ethers.constants.AddressZero,
       escrowAddress: config.escrow?.escrowAddress ?? ESCROW_CONTRACT_V2_POLYGON,
       chainId: config.escrow?.chainId ?? 137,
-      affiliate: config.escrow?.affiliate ?? ethers.constants.AddressZero,
       deadlineSeconds: config.escrow?.deadlineSeconds ?? 3600,
+      performanceDomeFeeBps,
+      performanceAffiliateFeeBps,
+      minOrderFeeUsdc,
+      minPerformanceFeeUsdc,
     };
   }
 
@@ -139,7 +276,8 @@ export class PolymarketRouterWithEscrow extends PolymarketRouter {
       walletAddress,
       negRisk = false,
       orderType = 'GTC',
-      feeBps = this.escrowConfig.feeBps,
+      domeFeeBps = this.escrowConfig.domeFeeBps,
+      affiliateFeeBps = this.escrowConfig.affiliateFeeBps,
       affiliate = this.escrowConfig.affiliate,
     } = params;
 
@@ -176,26 +314,24 @@ export class PolymarketRouterWithEscrow extends PolymarketRouter {
     // Calculate order size in USDC (6 decimals)
     // Size is in shares, price is 0-1, so USDC cost = size * price
     const orderSizeUsdc = parseUsdc(size * price);
-    const totalFee = calculateFee(orderSizeUsdc, BigInt(feeBps));
 
-    // V2: Split fee between dome and affiliate
-    // If affiliate specified: 80% dome, 20% affiliate
-    // Otherwise: 100% dome
-    let domeAmount: bigint;
-    let affiliateAmount: bigint;
+    // Calculate independent fees using configured BPS values
+    let domeAmount = (orderSizeUsdc * BigInt(domeFeeBps)) / BigInt(10000);
+    let affiliateAmount =
+      (orderSizeUsdc * BigInt(affiliateFeeBps)) / BigInt(10000);
+    let totalFee = domeAmount + affiliateAmount;
 
-    if (affiliate !== ethers.constants.AddressZero) {
-      // 80/20 split
-      affiliateAmount = (totalFee * BigInt(20)) / BigInt(100);
-      domeAmount = totalFee - affiliateAmount;
-    } else {
-      domeAmount = totalFee;
-      affiliateAmount = BigInt(0);
-    }
-
-    // Ensure minimum fee is met
-    if (domeAmount + affiliateAmount < MIN_ORDER_FEE) {
+    // Ensure minimum fee is met with proportional scaling
+    if (totalFee < MIN_ORDER_FEE && totalFee > BigInt(0)) {
+      const scale = (MIN_ORDER_FEE * BigInt(10000)) / totalFee;
+      domeAmount = (domeAmount * scale) / BigInt(10000);
+      affiliateAmount = MIN_ORDER_FEE - domeAmount;
+      totalFee = MIN_ORDER_FEE;
+    } else if (totalFee === BigInt(0)) {
+      // If both rates are 0, apply minimum to dome only
       domeAmount = MIN_ORDER_FEE;
+      affiliateAmount = BigInt(0);
+      totalFee = MIN_ORDER_FEE;
     }
 
     // Generate unique orderId
@@ -334,19 +470,138 @@ export class PolymarketRouterWithEscrow extends PolymarketRouter {
   /**
    * Get the escrow configuration
    */
-  getEscrowConfig(): Required<EscrowConfig> {
+  getEscrowConfig(): Readonly<ResolvedEscrowConfig> {
     return { ...this.escrowConfig };
   }
 
   /**
-   * Calculate the fee for an order
+   * Calculate the fee for an order (dome + affiliate combined)
+   *
+   * Uses the router's configured minimum fee (from server or local default).
    */
-  calculateOrderFee(size: number, price: number, feeBps?: number): bigint {
+  calculateOrderFee(
+    size: number,
+    price: number,
+    domeFeeBps?: number,
+    affiliateFeeBps?: number
+  ): bigint {
     const orderSizeUsdc = parseUsdc(size * price);
-    return calculateFee(
-      orderSizeUsdc,
-      BigInt(feeBps ?? this.escrowConfig.feeBps)
-    );
+    const dBps = domeFeeBps ?? this.escrowConfig.domeFeeBps;
+    const aBps = affiliateFeeBps ?? this.escrowConfig.affiliateFeeBps;
+    const minFee = this.escrowConfig.minOrderFeeUsdc;
+
+    let domeAmount = (orderSizeUsdc * BigInt(dBps)) / BigInt(10000);
+    let affiliateAmount = (orderSizeUsdc * BigInt(aBps)) / BigInt(10000);
+    let totalFee = domeAmount + affiliateAmount;
+
+    // Ensure minimum fee with proportional scaling
+    if (totalFee < minFee && totalFee > BigInt(0)) {
+      const scale = (minFee * BigInt(10000)) / totalFee;
+      domeAmount = (domeAmount * scale) / BigInt(10000);
+      affiliateAmount = minFee - domeAmount;
+      totalFee = minFee;
+    } else if (totalFee === BigInt(0)) {
+      totalFee = minFee;
+    }
+
+    return totalFee;
+  }
+
+  /**
+   * Calculate performance fee for winnings (dome + affiliate combined)
+   *
+   * Performance fees are charged only when claiming winning positions.
+   * Uses the router's configured performance fee rates and minimum fee.
+   *
+   * @param winnings - Total winnings amount in USDC (6 decimals)
+   * @param domeFeeBps - Override Dome fee BPS (optional)
+   * @param affiliateFeeBps - Override affiliate fee BPS (optional)
+   * @returns Total fee amount in USDC (6 decimals)
+   *
+   * @example
+   * ```typescript
+   * // $1000 winnings with default config (e.g., 4% dome + 1% affiliate)
+   * const fee = router.calculatePerformanceFee(1000_000_000n);
+   * // fee = 50_000_000n ($50)
+   * ```
+   */
+  calculatePerformanceFee(
+    winnings: bigint,
+    domeFeeBps?: number,
+    affiliateFeeBps?: number
+  ): bigint {
+    const dBps = domeFeeBps ?? this.escrowConfig.performanceDomeFeeBps;
+    const aBps =
+      affiliateFeeBps ?? this.escrowConfig.performanceAffiliateFeeBps;
+    const minFee = this.escrowConfig.minPerformanceFeeUsdc;
+
+    let domeAmount = (winnings * BigInt(dBps)) / BigInt(10000);
+    let affiliateAmount = (winnings * BigInt(aBps)) / BigInt(10000);
+    let totalFee = domeAmount + affiliateAmount;
+
+    // Ensure minimum fee with proportional scaling
+    if (totalFee < minFee && totalFee > BigInt(0)) {
+      const scale = (minFee * BigInt(10000)) / totalFee;
+      domeAmount = (domeAmount * scale) / BigInt(10000);
+      affiliateAmount = minFee - domeAmount;
+      totalFee = minFee;
+    } else if (totalFee === BigInt(0)) {
+      totalFee = minFee;
+    }
+
+    return totalFee;
+  }
+
+  /**
+   * Get performance fee split breakdown
+   *
+   * Returns detailed breakdown of Dome and affiliate portions of the fee.
+   * Useful when you need to know the individual amounts for payment.
+   *
+   * @param winnings - Total winnings amount in USDC (6 decimals)
+   * @param domeFeeBps - Override Dome fee BPS (optional)
+   * @param affiliateFeeBps - Override affiliate fee BPS (optional)
+   * @returns Fee split with total, dome, and affiliate amounts
+   *
+   * @example
+   * ```typescript
+   * const split = router.getPerformanceFeeSplit(1000_000_000n);
+   * console.log(split.domeAmount);      // Dome's share
+   * console.log(split.affiliateAmount); // Affiliate's share
+   * console.log(split.totalFee);        // Total fee
+   * ```
+   */
+  getPerformanceFeeSplit(
+    winnings: bigint,
+    domeFeeBps?: number,
+    affiliateFeeBps?: number
+  ): PerformanceFeeSplitResult {
+    const dBps = domeFeeBps ?? this.escrowConfig.performanceDomeFeeBps;
+    const aBps =
+      affiliateFeeBps ?? this.escrowConfig.performanceAffiliateFeeBps;
+    const minFee = this.escrowConfig.minPerformanceFeeUsdc;
+
+    let domeAmount = (winnings * BigInt(dBps)) / BigInt(10000);
+    let affiliateAmount = (winnings * BigInt(aBps)) / BigInt(10000);
+    let totalFee = domeAmount + affiliateAmount;
+
+    // Ensure minimum fee with proportional scaling
+    if (totalFee < minFee && totalFee > BigInt(0)) {
+      const scale = (minFee * BigInt(10000)) / totalFee;
+      domeAmount = (domeAmount * scale) / BigInt(10000);
+      affiliateAmount = minFee - domeAmount;
+      totalFee = minFee;
+    } else if (totalFee === BigInt(0)) {
+      domeAmount = minFee;
+      affiliateAmount = BigInt(0);
+      totalFee = minFee;
+    }
+
+    return {
+      totalFee,
+      domeAmount,
+      affiliateAmount,
+    };
   }
 
   // Protected helper methods that need to be accessible

@@ -39,6 +39,13 @@ import {
   fetchFeeConfig,
   type FetchFeeConfigOptions,
 } from '../escrow/fee-config-fetcher.js';
+import {
+  checkEIP7702Compatibility,
+  createEIP7702ErrorMessage,
+  logEIP7702Result,
+  EIP7702Error,
+  type EIP7702DetectionResult,
+} from '../utils/eip7702.js';
 
 // Dome API endpoint
 const DOME_API_ENDPOINT = 'https://api.domeapi.io/v1';
@@ -67,6 +74,10 @@ export interface EscrowConfig {
   minOrderFeeUsdc?: bigint;
   /** Minimum performance fee in USDC (6 decimals). Default: MIN_PERFORMANCE_FEE (100000 = $0.10) */
   minPerformanceFeeUsdc?: bigint;
+  /** Enable EIP-7702 delegation detection (default: true). Logs warnings if unsupported delegates detected. */
+  checkEIP7702?: boolean;
+  /** Block orders if EIP-7702 delegation doesn't support EIP-1271 (default: false). Warn-only mode by default. */
+  blockUnsupportedEIP7702?: boolean;
 }
 
 /**
@@ -108,6 +119,8 @@ interface ResolvedEscrowConfig {
   performanceAffiliateFeeBps: number;
   minOrderFeeUsdc: bigint;
   minPerformanceFeeUsdc: bigint;
+  checkEIP7702: boolean;
+  blockUnsupportedEIP7702: boolean;
 }
 
 /**
@@ -229,6 +242,8 @@ export class PolymarketRouterWithEscrow extends PolymarketRouter {
       performanceAffiliateFeeBps,
       minOrderFeeUsdc,
       minPerformanceFeeUsdc,
+      checkEIP7702: config.escrow?.checkEIP7702 ?? true,
+      blockUnsupportedEIP7702: config.escrow?.blockUnsupportedEIP7702 ?? false,
     };
   }
 
@@ -309,6 +324,11 @@ export class PolymarketRouterWithEscrow extends PolymarketRouter {
       }
     } else {
       payerAddress = signerAddress;
+    }
+
+    // EIP-7702 detection check (after determining payer address)
+    if (this.escrowConfig.checkEIP7702) {
+      await this.checkEIP7702Compatibility(payerAddress);
     }
 
     // Calculate order size in USDC (6 decimals)
@@ -530,19 +550,20 @@ export class PolymarketRouterWithEscrow extends PolymarketRouter {
     domeFeeBps?: number,
     affiliateFeeBps?: number
   ): bigint {
-    const dBps = domeFeeBps ?? this.escrowConfig.performanceDomeFeeBps;
-    const aBps =
-      affiliateFeeBps ?? this.escrowConfig.performanceAffiliateFeeBps;
+    const dBps = (domeFeeBps ??
+      this.escrowConfig.performanceDomeFeeBps) as number;
+    const aBps = (affiliateFeeBps ??
+      this.escrowConfig.performanceAffiliateFeeBps) as number;
     const minFee = this.escrowConfig.minPerformanceFeeUsdc;
 
-    let domeAmount = (winnings * BigInt(dBps)) / BigInt(10000);
-    let affiliateAmount = (winnings * BigInt(aBps)) / BigInt(10000);
+    let domeAmount = (winnings * BigInt(dBps)) / BigInt(10000n);
+    let affiliateAmount = (winnings * BigInt(aBps)) / BigInt(10000n);
     let totalFee = domeAmount + affiliateAmount;
 
     // Ensure minimum fee with proportional scaling
     if (totalFee < minFee && totalFee > BigInt(0)) {
-      const scale = (minFee * BigInt(10000)) / totalFee;
-      domeAmount = (domeAmount * scale) / BigInt(10000);
+      const scale = (minFee * BigInt(10000n)) / totalFee;
+      domeAmount = (domeAmount * scale) / BigInt(10000n);
       affiliateAmount = minFee - domeAmount;
       totalFee = minFee;
     } else if (totalFee === BigInt(0)) {
@@ -576,24 +597,25 @@ export class PolymarketRouterWithEscrow extends PolymarketRouter {
     domeFeeBps?: number,
     affiliateFeeBps?: number
   ): PerformanceFeeSplitResult {
-    const dBps = domeFeeBps ?? this.escrowConfig.performanceDomeFeeBps;
-    const aBps =
-      affiliateFeeBps ?? this.escrowConfig.performanceAffiliateFeeBps;
+    const dBps = (domeFeeBps ??
+      this.escrowConfig.performanceDomeFeeBps) as number;
+    const aBps = (affiliateFeeBps ??
+      this.escrowConfig.performanceAffiliateFeeBps) as number;
     const minFee = this.escrowConfig.minPerformanceFeeUsdc;
 
-    let domeAmount = (winnings * BigInt(dBps)) / BigInt(10000);
-    let affiliateAmount = (winnings * BigInt(aBps)) / BigInt(10000);
+    let domeAmount = (winnings * BigInt(dBps)) / BigInt(10000n);
+    let affiliateAmount = (winnings * BigInt(aBps)) / BigInt(10000n);
     let totalFee = domeAmount + affiliateAmount;
 
     // Ensure minimum fee with proportional scaling
     if (totalFee < minFee && totalFee > BigInt(0)) {
-      const scale = (minFee * BigInt(10000)) / totalFee;
-      domeAmount = (domeAmount * scale) / BigInt(10000);
+      const scale = (minFee * BigInt(10000n)) / totalFee;
+      domeAmount = (domeAmount * scale) / BigInt(10000n);
       affiliateAmount = minFee - domeAmount;
       totalFee = minFee;
     } else if (totalFee === BigInt(0)) {
       domeAmount = minFee;
-      affiliateAmount = BigInt(0);
+      affiliateAmount = BigInt(0n);
       totalFee = minFee;
     }
 
@@ -723,5 +745,59 @@ export class PolymarketRouterWithEscrow extends PolymarketRouter {
       signatureType: signedOrder.signatureType,
       signature: signedOrder.signature,
     };
+  }
+
+  /**
+   * Check if an address uses EIP-7702 delegation and verify compatibility
+   *
+   * @private
+   * @param address - Address to check
+   * @throws {EIP7702Error} If blockUnsupportedEIP7702 is true and delegate lacks EIP-1271
+   */
+  private async checkEIP7702Compatibility(address: string): Promise<void> {
+    try {
+      // Get the provider from the parent class
+      // For now, we'll use a public RPC endpoint for Polygon
+      const provider = new ethers.providers.JsonRpcProvider(
+        'https://polygon-rpc.com',
+        137
+      );
+
+      const result = await checkEIP7702Compatibility(address, provider);
+      logEIP7702Result(address, result);
+
+      // If blockUnsupportedEIP7702 is true and we detect unsupported delegation, throw
+      if (
+        result.isDelegated &&
+        result.supportsEIP1271 === false &&
+        this.escrowConfig.blockUnsupportedEIP7702
+      ) {
+        const errorMessage = createEIP7702ErrorMessage(
+          address,
+          result.delegateAddress,
+          result.supportsEIP1271
+        );
+        throw new EIP7702Error(
+          errorMessage,
+          result.delegateAddress,
+          result.supportsEIP1271
+        );
+      }
+    } catch (error) {
+      // If it's an EIP7702Error and we're in block mode, rethrow
+      if (
+        error instanceof EIP7702Error &&
+        this.escrowConfig.blockUnsupportedEIP7702
+      ) {
+        throw error;
+      }
+
+      // For other errors (e.g., RPC issues), log a warning but don't block
+      if (error instanceof Error) {
+        console.warn(
+          `[EIP-7702 Detection] Warning: ${error.message}. Continuing with order placement.`
+        );
+      }
+    }
   }
 }

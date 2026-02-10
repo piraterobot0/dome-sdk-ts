@@ -500,6 +500,98 @@ For full details, see the [User Settings Documentation](https://docs.domeapi.io/
 
 ---
 
+## EIP-7702 and Privy Gas Sponsorship
+
+### What is EIP-7702?
+
+EIP-7702 allows EOAs to delegate execution to smart contracts, enabling advanced features like gas sponsorship. When enabled, the wallet bytecode becomes `0xef0100 || delegateAddress`.
+
+Privy uses EIP-7702 for its gas sponsorship feature, allowing users to sponsor transaction fees through a delegate contract.
+
+### Signature Verification Requirements
+
+**Critical**: For escrow fee authorizations to work with EIP-7702, the delegate contract **MUST** implement EIP-1271's `isValidSignature` method.
+
+Without EIP-1271 support:
+
+- ✅ Off-chain signing works (SDK generates valid signatures)
+- ❌ On-chain verification fails (DomeFeeEscrow contract can't validate)
+- ❌ Orders rejected with `InvalidSignature` or `DelegateDoesNotSupportEIP1271` error
+
+### Detection and Configuration
+
+The router automatically detects EIP-7702 delegation and warns if the delegate lacks EIP-1271 support:
+
+```typescript
+const router = new PolymarketRouterWithEscrow({
+  chainId: 137,
+  apiKey: process.env.DOME_API_KEY!,
+
+  escrow: {
+    domeFeeBps: 20,
+
+    // EIP-7702 detection options (default: enabled with warnings)
+    checkEIP7702: true, // Enable detection (default: true)
+    blockUnsupportedEIP7702: false, // Fail fast if unsupported (default: false)
+  },
+});
+```
+
+**Configuration Options:**
+
+| Option                           | Default  | Behavior                                                             |
+| -------------------------------- | -------- | -------------------------------------------------------------------- |
+| `checkEIP7702: true`             | Enabled  | Detects EIP-7702 and logs warnings. Orders proceed.                  |
+| `blockUnsupportedEIP7702: false` | Disabled | Warnings only. Use `true` to throw error if delegate lacks EIP-1271. |
+
+### What Happens During Detection
+
+1. **Before order placement**, the router checks the payer's wallet bytecode
+2. **If `0xef0100` prefix detected**, extraction of delegate address
+3. **EIP-1271 support check** by attempting to call `isValidSignature()`
+4. **Result logging** with detailed status:
+   - ✓ No delegation: "No EIP-7702 detected"
+   - ✓ With EIP-1271: "EIP-7702 detected with EIP-1271 support ✓"
+   - ⚠️ Without EIP-1271: "EIP-7702 detected but delegate lacks EIP-1271 ✗"
+
+### Troubleshooting
+
+| Error                              | Cause                              | Solution                                              |
+| ---------------------------------- | ---------------------------------- | ----------------------------------------------------- |
+| `InvalidSignature` during fee pull | EIP-7702 delegate lacks EIP-1271   | Contact Privy support or disable gas sponsorship      |
+| `DelegateDoesNotSupportEIP1271`    | Explicit check in contract         | Same as above                                         |
+| Detection errors                   | RPC issues or wallet type mismatch | Check network connectivity; see diagnostic tool below |
+
+### Diagnostic Tool
+
+To check a wallet's EIP-7702 status manually:
+
+```typescript
+import {
+  checkEIP7702Compatibility,
+  logEIP7702Result,
+} from '@dome-api/sdk/escrow';
+import { ethers } from 'ethers';
+
+const provider = new ethers.providers.JsonRpcProvider(
+  'https://polygon-rpc.com',
+  137
+);
+const result = await checkEIP7702Compatibility(
+  '0x...walletAddress...',
+  provider
+);
+
+logEIP7702Result('0x...walletAddress...', result);
+
+// Example output:
+// [EIP-7702] 0x... - Delegation detected: 0x... (EIP-1271 ✗)
+```
+
+For more details, see the [EIP-7702 Diagnostic Example](./privy-eip7702-diagnostic.ts).
+
+---
+
 ## Support
 
 - **Technical Integration**: kunal@domeapi.com

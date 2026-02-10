@@ -18,12 +18,17 @@
 
 import 'dotenv/config';
 import { PrivyClient } from '@privy-io/server-auth';
+import { ethers } from 'ethers';
 import {
   PolymarketRouterWithEscrow,
   RouterSigner,
   PolymarketCredentials,
   approveEscrow,
 } from '../src/index.js';
+import {
+  checkEIP7702Compatibility,
+  logEIP7702Result,
+} from '../src/utils/eip7702.js';
 
 // =============================================================================
 // Configuration
@@ -147,6 +152,33 @@ async function main() {
   });
 
   console.log('Router initialized with fee escrow (0.25% total)\n');
+
+  // Check for EIP-7702 delegation (Privy gas sponsorship)
+  console.log('Checking for EIP-7702 delegation...');
+  try {
+    const provider = new ethers.providers.JsonRpcProvider(
+      'https://polygon-rpc.com',
+      137
+    );
+    const eip7702Result = await checkEIP7702Compatibility(
+      CONFIG.privyWalletAddress,
+      provider
+    );
+
+    logEIP7702Result(CONFIG.privyWalletAddress, eip7702Result);
+
+    if (eip7702Result.isDelegated && eip7702Result.supportsEIP1271 === false) {
+      console.warn(
+        '\n⚠️  WARNING: EIP-7702 delegation detected without EIP-1271 support'
+      );
+      console.warn(
+        '   Fee authorizations may fail on-chain with DomeFeeEscrow'
+      );
+      console.warn('   Contact Privy support or disable gas sponsorship\n');
+    }
+  } catch (error: any) {
+    console.warn(`Could not check EIP-7702 status: ${error.message}\n`);
+  }
 
   // Approve USDC for escrow and Polymarket contracts
   console.log('Checking/approving USDC allowances...');

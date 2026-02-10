@@ -54,6 +54,15 @@ export * from './router/index.js';
 // Re-export utility helpers
 export * from './utils/privy.js';
 export {
+  detectEIP7702Delegation,
+  supportsEIP1271,
+  logEIP7702Result,
+  createEIP7702ErrorMessage,
+  checkEIP7702Compatibility,
+  EIP7702Error,
+  type EIP7702DetectionResult,
+} from './utils/eip7702.js';
+export {
   buildRedeemPositionsTx,
   buildRedeemPositionsCalldata,
   signRedeemPositionsTx,
@@ -80,6 +89,7 @@ export {
   ESCROW_CONTRACT_POLYGON,
   ESCROW_CONTRACT_V1_POLYGON,
   ESCROW_CONTRACT_V2_POLYGON,
+  ESCROW_CONTRACT_V3_POLYGON,
   USDC_POLYGON,
   // DomeFeeEscrow v2 exports
   DomeFeeEscrowClient,

@@ -18,7 +18,7 @@ const POLYGON_ADDRESSES = {
   CTF_EXCHANGE: '0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E',
   NEG_RISK_CTF_EXCHANGE: '0xC5d563A36AE78145C45a50134d48A1215220f80a',
   NEG_RISK_ADAPTER: '0xd91E80cF2E7be2e162c6513ceD06f1dD0dA35296',
-  DOME_FEE_ESCROW: '0x93519731c9d45738CD999F8b8E86936cc2a33870',
+  DOME_FEE_ESCROW: '0xbAB9746479eE82bea2eE120bf4DA31Aa1F1B3043', // V3 with EIP-7702 support
 };
 
 // ABI encoders
@@ -161,6 +161,66 @@ export function createPrivySignerFromEnv(
   const privy = createPrivyClient(config);
   return createPrivySigner(privy, walletId, walletAddress);
 }
+
+/**
+ * **EIP-7702 Gas Sponsorship Support**
+ *
+ * Privy's gas sponsorship feature uses EIP-7702 to delegate wallet execution to a smart contract.
+ * When enabled, wallet bytecode becomes `0xef0100 || delegateAddress`.
+ *
+ * **Critical for Fee Escrow**: The delegate contract MUST implement EIP-1271's `isValidSignature()`
+ * method for fee authorization signatures to work on-chain with DomeFeeEscrow.
+ *
+ * **How Dome Handles This:**
+ *
+ * When using PolymarketRouterWithEscrow with a Privy wallet:
+ *
+ * 1. Router detects if wallet uses EIP-7702 delegation
+ * 2. Logs warning if delegate lacks EIP-1271 support
+ * 3. Optionally blocks orders (if `blockUnsupportedEIP7702: true`)
+ *
+ * **Configuration:**
+ *
+ * ```typescript
+ * const router = new PolymarketRouterWithEscrow({
+ *   apiKey: process.env.DOME_API_KEY!,
+ *   escrow: {
+ *     domeFeeBps: 20,
+ *
+ *     // EIP-7702 settings
+ *     checkEIP7702: true,                 // Default: detect and warn
+ *     blockUnsupportedEIP7702: false,     // Default: allow orders to proceed
+ *   },
+ * });
+ *
+ * const signer = createPrivySignerFromEnv(walletId, walletAddress);
+ * await router.placeOrder({
+ *   userId: 'user-123',
+ *   marketId: 'market-456',
+ *   side: 'buy',
+ *   size: 10,
+ *   price: 0.65,
+ *   signer,
+ * });
+ * ```
+ *
+ * **If Orders Fail with InvalidSignature:**
+ *
+ * 1. Check if wallet uses EIP-7702:
+ *    ```bash
+ *    npx tsx examples/privy-eip7702-diagnostic.ts 0xYourWallet
+ *    ```
+ *
+ * 2. If EIP-7702 detected without EIP-1271:
+ *    - Contact Privy support for EIP-1271 implementation
+ *    - OR disable Privy gas sponsorship
+ *    - OR use different wallet
+ *
+ * **For More Information:**
+ * - See examples/TROUBLESHOOTING_EIP7702.md for detailed troubleshooting
+ * - See examples/privy-eip7702-diagnostic.ts for diagnostic tool
+ * - See examples/ESCROW_ROUTER_QUICKSTART.md for EIP-7702 configuration details
+ */
 
 /**
  * Check if a wallet has all required Polymarket and Dome token allowances

@@ -11,12 +11,16 @@ export const USDC_POLYGON = '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174';
 export const ESCROW_CONTRACT_V1_POLYGON =
   '0x989876083eD929BE583b8138e40D469ea3E53a37';
 
-// V2 DomeFeeEscrow Contract on Polygon (current)
+// V2 DomeFeeEscrow Contract on Polygon (deprecated)
 export const ESCROW_CONTRACT_V2_POLYGON =
   '0x93519731c9d45738CD999F8b8E86936cc2a33870';
 
-// Default Escrow Contract on Polygon (V2)
-export const ESCROW_CONTRACT_POLYGON = ESCROW_CONTRACT_V2_POLYGON;
+// V3 DomeFeeEscrow Contract on Polygon with EIP-7702 Support (current)
+export const ESCROW_CONTRACT_V3_POLYGON =
+  '0xbAB9746479eE82bea2eE120bf4DA31Aa1F1B3043';
+
+// Default Escrow Contract on Polygon (V3 - with EIP-7702 support)
+export const ESCROW_CONTRACT_POLYGON = ESCROW_CONTRACT_V3_POLYGON;
 
 /**
  * Format USDC amount (6 decimals) to human readable

@@ -1604,13 +1604,20 @@ const signature = await safeOwnerWallet.signTypedData(domain, types, {
 // Safe validates that the EOA owner is an authorized signer
 ```
 
-| Aspect | EOA | SAFE |
-|--------|-----|------|
-| `payer` parameter | User's EOA address | SAFE contract address |
-| Who signs | EOA (same as payer) | EOA owner of the SAFE |
-| Who holds USDC | EOA | SAFE contract |
-| Signature verification | ECDSA | EIP-1271 |
-| USDC approval from | EOA | SAFE (via Safe tx) |
+### Wallet Type Comparison
+
+The SDK supports three wallet architectures for fee authorization:
+
+| Aspect                 | EOA                 | SAFE                  | EIP-7702 Delegated      |
+| ---------------------- | ------------------- | --------------------- | ----------------------- |
+| `payer` parameter      | User's EOA address  | SAFE contract address | EOA address (same)      |
+| Who signs              | EOA (same as payer) | EOA owner of the SAFE | EOA owner of delegation |
+| Who holds USDC         | EOA                 | SAFE contract         | EOA (delegated)         |
+| Signature verification | ECDSA               | EIP-1271              | EIP-1271 (delegate)     |
+| USDC approval from     | EOA                 | SAFE (via Safe tx)    | EOA or delegate         |
+| Use case               | Standard wallets    | Multi-sig wallets     | Gas sponsorship (Privy) |
+
+**EIP-7702 Note**: EIP-7702 allows EOAs to delegate execution to smart contracts (enabling features like gas sponsorship). From the fee authorization perspective, EIP-7702 wallets are delegate-agnostic—the signature verification transparently routes through EIP-1271 regardless of the specific delegate implementation. This makes the SDK compatible with any EIP-7702 delegate that implements EIP-1271 (e.g., Privy's gas sponsorship contracts).
 
 ## Error Handling
 

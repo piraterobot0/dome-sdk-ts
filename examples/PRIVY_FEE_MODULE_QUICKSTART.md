@@ -5,6 +5,8 @@
 This guide shows how to manually integrate fee authorization with Privy, giving you full control over order IDs, fee calculation, and signature timing. For automatic handling, see [ESCROW_ROUTER_QUICKSTART.md](./ESCROW_ROUTER_QUICKSTART.md).
 
 > **Tested**: Verify the integration by running the Complete Example below with your Privy credentials.
+>
+> **Note on EIP-7702**: This fee signing works transparently with Privy's EIP-7702 gas sponsorship. The signature process is identical whether the wallet uses delegation or not. See [ESCROW_ROUTER_QUICKSTART.md - EIP-7702 Section](./ESCROW_ROUTER_QUICKSTART.md#eip-7702-and-privy-gas-sponsorship) for how signature verification handles both cases.
 
 ---
 
@@ -33,7 +35,7 @@ This guide shows how to manually integrate fee authorization with Privy, giving 
                           │
                           ▼
 ┌──────────────────────────────────────────────────────────────────┐
-│  ESCROW CONTRACT (0x93519731c9d45738CD999F8b8E86936cc2a33870)    │
+│  ESCROW CONTRACT V3 (0xbAB9746479eE82bea2eE120bf4DA31Aa1F1B3043) │
 │                                                                  │
 │  • Holds USDC until order fills                                  │
 │  • Distributes 80% to Dome, 20% to affiliate                     │
@@ -87,6 +89,8 @@ npm install @dome-api/sdk @privy-io/server-auth ethers@^5.7.0
 
 ## Integration Steps
 
+> **Contract Version**: Uses DomeFeeEscrow V3 (`0xbAB9746479eE82bea2eE120bf4DA31Aa1F1B3043`) with EIP-7702 support
+
 ### Step 1: Import the Escrow Module
 
 The escrow utilities are exported as a namespace from the SDK:
@@ -130,6 +134,8 @@ The fee authorization requires a `TypedDataSigner`. Use `createPrivySigner()` fr
 // createPrivySigner() returns a TypedDataSigner-compatible signer
 const signer = createPrivySigner(privy, walletId, walletAddress);
 ```
+
+**Note on EIP-7702**: If the Privy wallet uses EIP-7702 delegation for gas sponsorship, this signer automatically handles it. The signature verification on-chain via EIP-1271 works transparently for both regular and delegated Privy wallets.
 
 ### Step 4: Generate Order ID and Sign Fee Authorization
 

@@ -234,14 +234,17 @@ describe('EIP-7702 Detection Utility', () => {
   });
 
   describe('logEIP7702Result', () => {
-    let consoleSpy: jest.SpyInstance;
+    let consoleLogSpy: jest.SpyInstance;
+    let consoleWarnSpy: jest.SpyInstance;
 
     beforeEach(() => {
-      consoleSpy = jest.spyOn(console, 'log').mockImplementation();
+      consoleLogSpy = jest.spyOn(console, 'log').mockImplementation();
+      consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation();
     });
 
     afterEach(() => {
-      consoleSpy.mockRestore();
+      consoleLogSpy.mockRestore();
+      consoleWarnSpy.mockRestore();
     });
 
     it('should log when error occurs', () => {
@@ -252,8 +255,8 @@ describe('EIP-7702 Detection Utility', () => {
 
       logEIP7702Result('0x1111111111111111111111111111111111111111', result);
 
-      expect(consoleSpy).toHaveBeenCalled();
-      expect(consoleSpy.mock.calls[0][0]).toContain('Error');
+      expect(consoleWarnSpy).toHaveBeenCalled();
+      expect(consoleWarnSpy.mock.calls[0][0]).toContain('Error');
     });
 
     it('should log when no delegation detected', () => {
@@ -263,8 +266,8 @@ describe('EIP-7702 Detection Utility', () => {
 
       logEIP7702Result('0x1111111111111111111111111111111111111111', result);
 
-      expect(consoleSpy).toHaveBeenCalled();
-      expect(consoleSpy.mock.calls[0][0]).toContain('No delegation');
+      expect(consoleLogSpy).toHaveBeenCalled();
+      expect(consoleLogSpy.mock.calls[0][0]).toContain('No delegation');
     });
 
     it('should log when EIP-7702 detected with EIP-1271 support', () => {
@@ -276,8 +279,8 @@ describe('EIP-7702 Detection Utility', () => {
 
       logEIP7702Result('0x1111111111111111111111111111111111111111', result);
 
-      expect(consoleSpy).toHaveBeenCalled();
-      expect(consoleSpy.mock.calls[0][0]).toContain('EIP-1271');
+      expect(consoleLogSpy).toHaveBeenCalled();
+      expect(consoleLogSpy.mock.calls[0][0]).toContain('EIP-1271');
     });
 
     it('should log when EIP-7702 detected without EIP-1271 support', () => {
@@ -289,8 +292,8 @@ describe('EIP-7702 Detection Utility', () => {
 
       logEIP7702Result('0x1111111111111111111111111111111111111111', result);
 
-      expect(consoleSpy).toHaveBeenCalled();
-      expect(consoleSpy.mock.calls[0][0]).toContain('EIP-1271');
+      expect(consoleWarnSpy).toHaveBeenCalled();
+      expect(consoleWarnSpy.mock.calls[0][0]).toContain('EIP-1271');
     });
   });
 

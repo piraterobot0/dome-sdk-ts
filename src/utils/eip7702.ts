@@ -48,7 +48,7 @@ export class EIP7702Error extends Error {
  * Format: 0xef0100 || delegateAddress (20 bytes)
  */
 const EIP7702_PREFIX = '0xef0100';
-const EIP7702_BYTECODE_LENGTH = 46; // 0x + 44 hex chars (2 bytes per byte) = 23 bytes total
+const EIP7702_BYTECODE_LENGTH = 48; // 0x (2) + ef0100 (6) + address (40) = 48 hex chars = 23 bytes total
 
 /**
  * EIP-1271 signature validation selector (0x1626ba7e)
@@ -271,7 +271,7 @@ export function createEIP7702ErrorMessage(
 
   return (
     `Wallet ${address} uses EIP-7702 gas sponsorship with delegate ${delegateAddress}. ` +
-    `Could not verify EIP-1271 support. Fee authorizations may fail.`
+    `EIP-1271 support status unknown. Fee authorizations may fail.`
   );
 }
 

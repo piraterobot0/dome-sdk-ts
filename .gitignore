@@ -147,3 +147,7 @@ temp/
 
 # ai docs
 ai-docs/*
+
+# Claude
+.claude/
+CLAUDE.md
